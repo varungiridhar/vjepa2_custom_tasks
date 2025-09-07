@@ -188,7 +188,13 @@ class DROIDVideoDataset(torch.utils.data.Dataset):
         # -- randomly sample a camera view
         camera_view = self.camera_views[torch.randint(0, len(self.camera_views), (1,))]
         mp4_name = metadata[camera_view].split("recordings/MP4/")[-1]
+
+        # Keep original camera name for HDF5 key access
         camera_name = mp4_name.split(".")[0]
+
+        # Insert "-stereo" before ".mp4"
+        mp4_name = mp4_name.replace(".mp4", "-stereo.mp4")
+        # NOTE (VG): to get vjepa working with Albert's droid dataset
         extrinsics = trajectory["observation"]["camera_extrinsics"][f"{camera_name}_left"]
         states = np.concatenate(
             [
@@ -223,9 +229,10 @@ class DROIDVideoDataset(torch.utils.data.Dataset):
         # --
         vr.seek(0)  # go to start of video before sampling frames
         buffer = vr.get_batch(indices).asnumpy()
+        
         if self.transform is not None:
             buffer = self.transform(buffer)
-
+            
         return buffer, actions, states, extrinsics, indices
 
     def __len__(self):

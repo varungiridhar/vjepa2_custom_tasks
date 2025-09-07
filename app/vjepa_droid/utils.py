@@ -37,14 +37,20 @@ def load_pretrained(
     if load_encoder:
         # -- loading encoder
         pretrained_dict = checkpoint[context_encoder_key]
-        pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+        # Remove common prefixes that might be in checkpoints
+        for prefix in ["backbone."]:
+            pretrained_dict = {k.replace(prefix, ""): v for k, v in pretrained_dict.items()}
         msg = encoder.load_state_dict(pretrained_dict, strict=False)
         logger.info(f"loaded pretrained encoder from epoch {epoch} with msg: {msg}")
 
     if load_predictor:
         # -- loading predictor
         pretrained_dict = checkpoint["predictor"]
-        pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+        print("pretrained_dict.keys() before processing: ", list(pretrained_dict.keys())[:5])  # Debug first 5 keys
+        # Remove common prefixes that might be in checkpoints
+        for prefix in ["backbone."]:
+            pretrained_dict = {k.replace(prefix, ""): v for k, v in pretrained_dict.items()}
+        print("pretrained_dict.keys() after processing: ", list(pretrained_dict.keys())[:5])  # Debug first 5 keys
         msg = predictor.load_state_dict(pretrained_dict, strict=False)
         logger.info(f"loaded pretrained predictor from epoch {epoch} with msg: {msg}")
 
@@ -53,7 +59,9 @@ def load_pretrained(
         if target_encoder is not None:
             print(list(checkpoint.keys()))
             pretrained_dict = checkpoint[target_encoder_key]
-            pretrained_dict = {k.replace("backbone.", ""): v for k, v in pretrained_dict.items()}
+            # Remove common prefixes that might be in checkpoints
+            for prefix in ["backbone."]:
+                pretrained_dict = {k.replace(prefix, ""): v for k, v in pretrained_dict.items()}
             msg = target_encoder.load_state_dict(pretrained_dict, strict=False)
             logger.info(f"loaded pretrained target encoder from epoch {epoch} with msg: {msg}")
 
@@ -73,7 +81,7 @@ def load_checkpoint(
     target_encoder,
     opt=None,
     scaler=None,
-    replace_kw=["backbone."],
+    replace_kw=["backbone.", "module."],
 ):
     logger.info(f"Loading checkpoint from {r_path}")
     checkpoint = robust_checkpoint_loader(r_path, map_location=torch.device("cpu"))
@@ -82,6 +90,8 @@ def load_checkpoint(
 
     # -- loading encoder
     pretrained_dict = checkpoint["encoder"]
+    print("pretrained_dict.keys() before processing: ", list(pretrained_dict.keys())[:5])  # Debug first 5 keys
+    print("encoder keys before processing: ", list(encoder.state_dict().keys())[:5])  # Debug first 5 keys
     for kw in replace_kw:
         pretrained_dict = {k.replace(kw, ""): v for k, v in pretrained_dict.items()}
     msg = encoder.load_state_dict(pretrained_dict, strict=False)
