@@ -154,6 +154,7 @@ def init_video_model(
     use_activation_checkpointing=False,
     return_all_tokens=False,
     action_embed_dim=7,
+    state_embed_dim=7,
     use_extrinsics=False,
     old_pred=False,
 ):
@@ -178,6 +179,7 @@ def init_video_model(
         embed_dim=encoder.embed_dim,
         predictor_embed_dim=pred_embed_dim,
         action_embed_dim=action_embed_dim,
+        state_embed_dim=state_embed_dim,
         depth=pred_depth,
         is_frame_causal=pred_is_frame_causal,
         num_heads=encoder.num_heads if pred_num_heads is None else pred_num_heads,
