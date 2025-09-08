@@ -1,6 +1,6 @@
 app: vjepa_droid # NOTE (VG): change if needed
 cpus_per_task: 12
-folder: /storage/home/hcoda1/6/vgiridhar6/scratch/vjepa2/090725
+folder: /storage/home/hcoda1/6/vgiridhar6/scratch/vjepa2/deformable/rope/090825
 mem_per_gpu: 220G
 nodes: 4
 tasks_per_node: 8
@@ -8,20 +8,21 @@ data:
   batch_size: 8
   camera_views:
   - left_mp4_path
-  crop_size: 256
+  crop_size: 224
   datasets:
     # CSV file, each line is a trajectory dir path
     # See https://github.com/facebookresearch/z/issues/65
-    - /storage/home/hcoda1/6/vgiridhar6/r-agarg35-0/dinowm_data/datasets/pusht_noise/train
+    # - /storage/home/hcoda1/6/vgiridhar6/r-agarg35-0/dinowm_data/datasets/pusht_noise/train
+    - /storage/home/hcoda1/6/vgiridhar6/r-agarg35-0/dinowm_data/datasets/deformable/rope
   dataset_fpcs:
-  - 10
+  - 20
   fps: 4
   num_workers: 12
   patch_size: 16
   pin_mem: true
   stereo_view: true
   tubelet_size: 2
-  frameskip: 5
+  frameskip: 1
 data_aug:
   auto_augment: false
   horizontal_flip: false
@@ -59,7 +60,8 @@ model:
   use_activation_checkpointing: true
   use_extrinsics: false
   use_rope: true
-  action_embed_dim: 7
+  action_embed_dim: 4
+  state_embed_dim: 7860 # rope: 7860, granular: 51096
 optimization:
   anneal: 15
   epochs: 315
@@ -74,7 +76,8 @@ wandb:
   project: world_model_smoothness
   entity: pair-diffusion
   enable: true
-  name: vjepa2_train_test_090725
+  name: vjepa2_train_test_082825
   tags:
-    - pusht
+    - deformable_env
+    - rope
     - vjepa2

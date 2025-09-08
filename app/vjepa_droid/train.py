@@ -29,7 +29,7 @@ import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
 
-from app.vjepa_droid.dinowm_pusht_adapter import init_data # for deformable dataset
+from app.vjepa_droid.dinowm_deformable_adapter import init_data # for deformable dataset
 from app.vjepa_droid.transforms import make_transforms
 from app.vjepa_droid.utils import init_opt, init_video_model, load_checkpoint, load_pretrained
 from src.utils.distributed import init_distributed
@@ -99,6 +99,8 @@ def main(args, resume_preempt=False):
 	use_pred_silu = cfgs_model.get("use_pred_silu", False)
 	wide_silu = cfgs_model.get("wide_silu", True)
 	use_extrinsics = cfgs_model.get("use_extrinsics", False)
+	action_embed_dim = cfgs_model.get("action_embed_dim", 7)
+	state_embed_dim = cfgs_model.get("state_embed_dim", 7)
 
 	# -- DATA
 	cfgs_data = args.get("data")
@@ -201,9 +203,6 @@ def main(args, resume_preempt=False):
 		("%d", "dataload-time(ms)"),
 		mode="+a",
 	)
-
-	print("Starting model creation...")
-
 	# -- init model
 	encoder, predictor = init_video_model(
 		uniform_power=uniform_power,
@@ -216,7 +215,8 @@ def main(args, resume_preempt=False):
 		pred_depth=pred_depth,
 		pred_num_heads=pred_num_heads,
 		pred_embed_dim=pred_embed_dim,
-		action_embed_dim=7,
+		action_embed_dim=action_embed_dim, # 7 for droid tasks, 2 for pushT, 4 for deformable tasks
+		state_embed_dim=state_embed_dim,
 		pred_is_frame_causal=pred_is_frame_causal,
 		use_extrinsics=use_extrinsics,
 		use_sdpa=use_sdpa,
@@ -436,7 +436,6 @@ def main(args, resume_preempt=False):
 				def forward_predictions(z):
 
 					def _step_predictor(_z, _a, _s, _e):
-
 						_z = predictor(_z, _a, _s, _e)
 						if normalize_reps:
 							_z = F.layer_norm(_z, (_z.size(-1),))
