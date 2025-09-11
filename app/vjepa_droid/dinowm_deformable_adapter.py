@@ -123,7 +123,6 @@ class DinoWMDeformableDataset(torch.utils.data.Dataset):
 				buffer, actions, states, extrinsics, indices = self.load_deformable_data(index)
 				loaded_data = True
 			except Exception as e:
-				logger.info(f"Encountered exception when loading deformable data {index=} {e=}")
 				loaded_data = False
 				index = np.random.randint(self.__len__())
 
@@ -131,7 +130,9 @@ class DinoWMDeformableDataset(torch.utils.data.Dataset):
 
 	def __len__(self):
 		"""Return the number of sequences in the dataset."""
-		return len(self.states)
+
+		# return len(self.states) #HRISH HARDCODED
+		return 50
 
 	def load_deformable_data(self, index):
 		debug = False  # Set to False to disable debugging

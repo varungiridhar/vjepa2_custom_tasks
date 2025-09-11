@@ -18,6 +18,8 @@ from .flex_scene import FlexScene
 from .cameras import Camera
 from ..utils import fps_with_idx, quatFromAxisAngle, find_min_distance, rand_float
 
+import imageio
+
 BASE_DIR = os.path.abspath(os.path.join(__file__, "../../../../../../"))
 
 class FlexEnv(gym.Env):
@@ -341,6 +343,65 @@ class FlexEnv(gym.Env):
         out_data = self.imgs_list, self.particle_pos_list, self.eef_states_list
 
         return out_data
+    
+    def save_imgs_list_as_mp4(self, output_path: str, camera_index: int = 0, fps: int = 20):
+        """
+        Save accumulated frames in self.imgs_list as an MP4 to the given absolute path.
+        If a video already exists at output_path, append the new frames to the end of it.
+        - output_path: absolute file path ending with .mp4
+        - camera_index: which camera to export (default 0)
+        - fps: frames per second for the output video
+        """
+        if not os.path.isabs(output_path):
+            raise ValueError("output_path must be an absolute path")
+        if len(self.imgs_list) == 0:
+            raise ValueError("No frames in imgs_list to save")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Prepare new frames from current buffer
+        new_frames = []
+        for step_imgs in self.imgs_list:
+            # step_imgs shape: (num_cams, H, W, C)
+            if camera_index >= step_imgs.shape[0]:
+                raise IndexError("camera_index out of range for captured frames")
+            frame = step_imgs[camera_index]
+            # take first 3 channels as RGB
+            if frame.shape[-1] >= 3:
+                frame = frame[..., :3]
+            # ensure uint8 in [0,255]
+            if frame.dtype != np.uint8:
+                max_val = frame.max()
+                if max_val <= 1.0:
+                    frame = (frame * 255.0).astype(np.uint8)
+                else:
+                    frame = np.clip(frame, 0, 255).astype(np.uint8)
+            new_frames.append(frame)
+
+        # If a file exists, stream old frames into a temp .mp4, then append new frames
+        append_to_existing = os.path.exists(output_path)
+        writer_target = output_path + ".tmp.mp4" if append_to_existing else output_path
+
+        with imageio.get_writer(writer_target, format="FFMPEG", fps=fps, codec="libx264", quality=8) as writer:
+            if append_to_existing:
+                try:
+                    reader = imageio.get_reader(output_path, format="FFMPEG")
+                    for old_frame in reader:
+                        if old_frame.dtype != np.uint8:
+                            old_frame = np.clip(old_frame, 0, 255).astype(np.uint8)
+                        writer.append_data(old_frame)
+                finally:
+                    try:
+                        reader.close()
+                    except Exception:
+                        pass
+            for f in new_frames:
+                writer.append_data(f)
+
+        if append_to_existing:
+            os.replace(writer_target, output_path)
+
+        print("Saved video to", output_path)
+        return output_path
 
     def step(self, action, save_data=False, data=None):
         """
@@ -400,6 +461,11 @@ class FlexEnv(gym.Env):
                 # print('jointPoses:', jointPoses)
                 self.reset_robot(jointPoses)
                 pyflex.step()
+
+                # frame = self.render()
+                # print("pic", frame)
+                # # save frame as png for debugging convert from rgb to brg and scale pixels 0-255
+
 
                 ## ================================================================
                 ## gripper control
@@ -482,6 +548,8 @@ class FlexEnv(gym.Env):
                     self.reset_robot(jointPoses)
                     pyflex.step()
 
+                    
+
                 ## ================================================================
 
                 # save img in each step
@@ -525,6 +593,9 @@ class FlexEnv(gym.Env):
 
         obs = self.render()
         out_data = self.imgs_list, self.particle_pos_list, self.eef_states_list
+
+        # self.save_imgs_list_as_mp4("/home/hrish/dino_wm/final_vid.mp4")
+
 
         return obs, out_data
 

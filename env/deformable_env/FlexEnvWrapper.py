@@ -46,6 +46,8 @@ class FlexEnvWrapper(FlexEnv):
         self.success_threshold = 0
 
     def eval_state(self, goal_state, cur_state):
+
+
         CD = chamfer_distance(torch.tensor([goal_state]), torch.tensor([cur_state]))
         print("CD: ", CD.item())
         success, chamfer_dist = CD.item() < 0, CD.item()

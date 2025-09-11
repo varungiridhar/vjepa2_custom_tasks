@@ -171,6 +171,9 @@ def init_video_model(
         use_rope=use_rope,
     )
 
+    # print("action dimension: ", encoder.embed_dim)
+    print("action dimension: ", action_embed_dim)
+
     predictor = vit_ac_pred.__dict__["vit_ac_predictor"](
         img_size=crop_size,
         patch_size=patch_size,

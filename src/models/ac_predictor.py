@@ -146,6 +146,7 @@ class VisionTransformerPredictorAC(nn.Module):
         # Interleave action tokens
         s = self.state_encoder(states).unsqueeze(2)
         a = self.action_encoder(actions).unsqueeze(2)
+        print("x shape", x.shape)
         x = x.view(B, T, self.grid_height * self.grid_width, D)  # [B, T, H*W, D]
         if self.use_extrinsics:
             e = self.extrinsics_encoder(extrinsics).unsqueeze(2)

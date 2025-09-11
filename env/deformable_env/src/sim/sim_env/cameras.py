@@ -36,6 +36,8 @@ class Camera():
             raise ValueError('camera_view not defined')
         
         # set camera
+        print("camPos: ", self.camPos)
+        print("camAngle: ", self.camAngle)
         pyflex.set_camPos(self.camPos)
         pyflex.set_camAngle(self.camAngle)
     
