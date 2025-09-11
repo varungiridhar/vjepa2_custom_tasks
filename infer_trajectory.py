@@ -1,7 +1,9 @@
 import os
+import random
 import sys
 import cv2
 import numpy as np
+from sklearn import base
 import torch
 # import gymnasium as gym
 import gym
@@ -12,6 +14,8 @@ import copy
 from torch import default_generator, randperm
 from einops import rearrange
 from torch import nn
+from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
+from torch.utils.data.distributed import DistributedSampler
 
 
 sys.path.insert(0, "..")
@@ -29,6 +33,130 @@ def world_to_image_coords(world_pos, image_size=224, world_size=512):
 	# Scale from world coordinates (0-512) to image coordinates (0-image_size)
 	scale = image_size / world_size
 	return (int(x * scale), int(y * scale))
+
+
+
+
+
+
+# https://github.com/JaidedAI/EasyOCR/issues/1243
+def _accumulate(iterable, fn=lambda x, y: x + y):
+    "Return running totals"
+    # _accumulate([1,2,3,4,5]) --> 1 3 6 10 15
+    # _accumulate([1,2,3,4,5], operator.mul) --> 1 2 6 24 120
+    it = iter(iterable)
+    try:
+        total = next(it)
+    except StopIteration:
+        return
+    yield total
+    for element in it:
+        total = fn(total, element)
+        yield total
+
+
+
+def random_split_traj(
+	dataset,
+	lengths,
+	generator=default_generator,):
+      
+	if sum(lengths) != len(dataset):  # type: ignore[arg-type]
+		raise ValueError(
+			"Sum of input lengths does not equal the length of the input dataset!"
+		)
+
+	indices = randperm(sum(lengths), generator=generator).tolist()
+	print(
+		[
+			indices[offset - length : offset]
+			for offset, length in zip(_accumulate(lengths), lengths)
+		]
+	)
+	list_of_indices = [
+		indices[offset - length : offset]
+		for offset, length in zip(_accumulate(lengths), lengths)
+	]
+
+
+	dset = []
+	for indices in list_of_indices:
+		ret = []
+		for i in indices:
+			ret.append(dataset[i])
+		dset.append(ret)
+
+	return dset
+
+
+def split_traj_datasets(dataset, train_fraction=0.95, random_seed=42):
+
+    dataset_length = len(dataset)
+    
+    lengths = [
+        int(train_fraction * dataset_length),
+        dataset_length - int(train_fraction * dataset_length),
+    ]
+    train_set, val_set = random_split_traj(
+        dataset, lengths, generator=torch.Generator().manual_seed(random_seed)
+    )
+    return train_set, val_set
+
+
+def seed(seed):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def sample_traj_segment_from_dset(dset, traj_len=6): # frameskip(1)*goal_h +1
+	states = []
+	actions = []
+	observations = []
+	env_info = []
+
+	# Check if any trajectory is long enough
+
+
+	# print("dset: ", len(self.dset))
+	print("dset: ", len(dset))
+      
+	for k in dset[0]:
+		print(k.shape)
+
+	valid_traj = [
+		dset[i][0].shape[0]
+		for i in range(len(dset))
+		if dset[i][0].shape[0] >= traj_len
+	]
+
+
+	if len(valid_traj) == 0:
+		raise ValueError("No trajectory in the dataset is long enough.")
+
+	# sample init_states from dset
+	for i in range(1):
+		max_offset = -1
+		while max_offset < 0:  # filter out traj that are not long enough
+			traj_id = 1
+			# traj_id = random.randint(0, len(dset) - 1) 
+			print("traj_id: ", traj_id)
+			obs, act, state, e_info, _ = dset[traj_id]
+			max_offset = obs.shape[0] - traj_len
+		state = state.numpy()
+		offset = random.randint(0, max_offset)
+
+		state = state[offset : offset + traj_len]
+		obs = obs[offset : offset + traj_len]
+		act = act[offset : offset + 1 * 6]  # frameskip(1)*goal_h
+		actions.append(act)
+		states.append(state)
+		observations.append(obs)
+		env_info.append(e_info)
+	return observations, states, actions, env_info
+
 
 
 def draw_mpc_action_arrow(image, agent_pos, action, color=(0, 0, 255), thickness=2, arrow_length=30):
@@ -589,7 +717,7 @@ def main():
 
 
 
-	data_loader, dist_sampler = init_data(
+	data_loader, dist_sampler, dataset = init_data(
 		data_path=data_path,
 		batch_size=1,
 		frames_per_clip=max_num_frames,
@@ -608,21 +736,38 @@ def main():
 		camera_frame=False,
 		tubelet_size=2,
 		frameskip=model_cfg.data.frameskip,  # Separate parameter for data subsampling
+            
 	)
+      
+	# print(next(iter(data_loader)))
+      
+	  
+	train_dset, val_dset = split_traj_datasets(
+		dataset, train_fraction=0.9, random_seed=42
+	)
+      
+	print("TESTING", val_dset[0][0][2].mean())
+
+		
+	# general_seed = 7
+	# eval_seed = 42
+      
+	# # seed(general_seed)
+      
+	observations, states, actions, env_info = sample_traj_segment_from_dset(val_dset)
 
 
-	buffer, actions, states, extrinsics, indices = next(iter(data_loader))
+
 
 	# one_ep_states = states[0]  # (T, D) or (T, P, 4)
 	# one_ep_actions = actions[0]  # (T, 4)
 
-	print("buffer", buffer.shape)
 
-	initial_state = states[0, 0].numpy()  # (D,) or (4,)
-	all_frames = buffer[0].numpy()  # (C, T, H, W)
-	#switch to (T, H, W, C)
-	# all_frames = np.transpose(all_frames, (1, 2, 3, 0))
-	# seq_length = all_frames.shape[0]
+	initial_state = states[0][0] # (D,) or (4,)
+	all_frames = observations[0].numpy()  # (T, H, W, C)
+      
+	print(all_frames[2].mean())
+
 
 	print("all_frames", all_frames.shape, "initial_state", initial_state.shape)
 

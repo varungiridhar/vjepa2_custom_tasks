@@ -55,7 +55,7 @@ def init_data(
 	)
 
 	dist_sampler = torch.utils.data.distributed.DistributedSampler(
-		dataset, num_replicas=world_size, rank=rank, shuffle=True
+		dataset, num_replicas=world_size, rank=rank, shuffle=False #I changed this
 	)
 
 	data_loader = torch.utils.data.DataLoader(
@@ -71,7 +71,7 @@ def init_data(
 
 	logger.info("DinoWM Deformable Dataset data loader created")
 
-	return data_loader, dist_sampler
+	return data_loader, dist_sampler, dataset
 
 
 class DinoWMDeformableDataset(torch.utils.data.Dataset):
@@ -108,6 +108,7 @@ class DinoWMDeformableDataset(torch.utils.data.Dataset):
 		self.proprios = torch.zeros((len(self.states), self.states.shape[1], 1))
 
 		# Limit number of rollouts if specified
+		n_rollout=50
 		if n_rollout is not None:
 			n = min(n_rollout, len(self.states))
 			self.states = self.states[:n]
@@ -161,9 +162,11 @@ class DinoWMDeformableDataset(torch.utils.data.Dataset):
 		if seq_length < frames_needed:
 			raise Exception(f"Episode {index} too short: seq_length={seq_length}, needed={frames_needed}")
 
-		# Sample a window of frames_per_clip frames with frameskip
+		# # Sample a window of frames_per_clip frames with frameskip
 		max_start = seq_length - frames_needed
-		start_frame = np.random.randint(0, max_start + 1) if max_start > 0 else 0
+		# start_frame = np.random.randint(0, max_start + 1) if max_start > 0 else 0
+		start_frame = 0  # deterministic: always first window #HRISH HARDCODED
+
 
 		# Create indices with frameskip
 		indices = np.arange(start_frame, start_frame + frames_needed, safe_frameskip).astype(np.int64)
