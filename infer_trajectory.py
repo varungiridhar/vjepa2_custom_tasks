@@ -16,6 +16,8 @@ from einops import rearrange
 from torch import nn
 from torch.utils.data import DataLoader, Subset, SubsetRandomSampler
 from torch.utils.data.distributed import DistributedSampler
+# Ensure we can import the Chamfer function from FlexEnvWrapper
+from env.deformable_env.FlexEnvWrapper import chamfer_distance
 
 
 sys.path.insert(0, "..")
@@ -146,11 +148,12 @@ def sample_traj_segment_from_dset(dset, traj_len=6): # frameskip(1)*goal_h +1
 			obs, act, state, e_info, _ = dset[traj_id]
 			max_offset = obs.shape[0] - traj_len
 		state = state.numpy()
-		offset = random.randint(0, max_offset)
+		# offset = random.randint(0, max_offset)
+		offset = 0 # HRISH HARDCODED
 
 		state = state[offset : offset + traj_len]
 		obs = obs[offset : offset + traj_len]
-		act = act[offset : offset + 1 * 6]  # frameskip(1)*goal_h
+		act = act[offset : offset + traj_len]  # frameskip(1)*goal_h
 		actions.append(act)
 		states.append(state)
 		observations.append(obs)
@@ -746,9 +749,6 @@ def main():
 		dataset, train_fraction=0.9, random_seed=42
 	)
       
-	print("TESTING", val_dset[0][0][2].mean())
-
-		
 	# general_seed = 7
 	# eval_seed = 42
       
@@ -884,11 +884,7 @@ def main():
 			exec_actions_np = np.stack(all_exec_actions, axis=0)
 			#print things going in
 			print("Executing actions in env for final evaluation:", exec_actions_np.shape, exec_actions_np)
-			print("Initial state:", initial_state.shape, initial_state)
 			_, e_states = env.rollout(1, initial_state, exec_actions_np)
-
-			# Ensure we can import the Chamfer function from FlexEnvWrapper
-			from env.deformable_env.FlexEnvWrapper import chamfer_distance
 
 			# Get the last executed state from the rollout: expected shape (N, 4)
 			last_state_np = e_states[-1]
