@@ -113,7 +113,7 @@ def seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def sample_traj_segment_from_dset(dset, traj_len=6): # frameskip(1)*goal_h +1
+def sample_traj_segment_from_dset(dset, traj_len=6, idx=0): # frameskip(1)*goal_h +1
 	states = []
 	actions = []
 	observations = []
@@ -142,8 +142,7 @@ def sample_traj_segment_from_dset(dset, traj_len=6): # frameskip(1)*goal_h +1
 	for i in range(1):
 		max_offset = -1
 		while max_offset < 0:  # filter out traj that are not long enough
-			traj_id = 1
-			# traj_id = random.randint(0, len(dset) - 1) 
+			traj_id = idx
 			print("traj_id: ", traj_id)
 			obs, act, state, e_info, _ = dset[traj_id]
 			max_offset = obs.shape[0] - traj_len
@@ -744,33 +743,12 @@ def main():
       
 	# print(next(iter(data_loader)))
       
-	  
+	split = 0.5
+
 	train_dset, val_dset = split_traj_datasets(
-		dataset, train_fraction=0.9, random_seed=42
+		dataset, train_fraction=split, random_seed=42
 	)
       
-	# general_seed = 7
-	# eval_seed = 42
-      
-	# # seed(general_seed)
-      
-	observations, states, actions, env_info = sample_traj_segment_from_dset(val_dset)
-
-
-
-
-	# one_ep_states = states[0]  # (T, D) or (T, P, 4)
-	# one_ep_actions = actions[0]  # (T, 4)
-
-
-	initial_state = states[0][0] # (D,) or (4,)
-	all_frames = observations[0].numpy()  # (T, H, W, C)
-      
-	print(all_frames[2].mean())
-
-
-	print("all_frames", all_frames.shape, "initial_state", initial_state.shape)
-
 
 	config = {
 		"env": {
@@ -805,124 +783,151 @@ def main():
 		*config["env"]["args"],
 		**config["env"]["kwargs"]
 	)
-	
+      
+	#random combination of 1-10 hardcoded
+	trajec_indices = [4, 6, 1, 2, 3, 5, 10, 7, 9, 8]
+	eval_iter = 0
+      
+	for eval_iter in range(10):
 
-	env.prepare(1, initial_state)
-	# env.unwrapped._set_state(initial_state)
-
-	# Initialize goal tracking
-	current_goal_idx = goal_jump  # Start with first goal
-
-	# Set initial goal
-	initial_frame = all_frames[0]
+		observations, states, actions, env_info = sample_traj_segment_from_dset(val_dset, idx=trajec_indices[eval_iter])
 
 
-	current_goal_frame = all_frames[min(current_goal_idx, len(all_frames) - 1)]
 
-	current_goal_state = initial_state  # Will be updated
 
-	# Prepare observations
-	current_obs = {"visual": initial_frame, "proprio": initial_state}
-	goal_obs = {"visual": current_goal_frame, "proprio": current_goal_state, "mode": 'constant'}
+		# one_ep_states = states[0]  # (T, D) or (T, P, 4)
+		# one_ep_actions = actions[0]  # (T, 4)
 
-	# Plan and execute across MPC iterations
-	all_exec_frames = [initial_frame]  # accumulate executed frames
-	all_exec_actions = []              # accumulate executed actions
-	prev_memo = None                   # warm-start tail for next iteration
 
-	max_steps = 5  # mpc iterations
-	cem_steps = 5
-	cem_config = {
-		"horizon": 1,  # plan horizon; execute 1 step each MPC
-		"samples": 20,
-		"topk": 10,
-		"cem_steps": cem_steps,
-		"var_scale": 1,
-	}
+		initial_state = states[0][0] # (D,) or (4,)
+		all_frames = observations[0].numpy()  # (T, H, W, C)
+		
+		print(all_frames[2].mean())
 
-	for mpc_iter in range(max_steps):  # max mpc iterations
-		print(f"MPC step {mpc_iter+1}/{max_steps}, current goal idx: {current_goal_idx}/{len(all_frames)-1}")
 
-		current_goal_frame = all_frames[current_goal_idx]
+		print("all_frames", all_frames.shape, "initial_state", initial_state.shape)
 
-		# Update goal observation for model
+
+
+		
+
+		env.prepare(1, initial_state)
+		# env.unwrapped._set_state(initial_state)
+
+		# Initialize goal tracking
+		current_goal_idx = goal_jump  # Start with first goal
+
+		# Set initial goal
+		initial_frame = all_frames[0]
+
+
+		current_goal_frame = all_frames[min(current_goal_idx, len(all_frames) - 1)]
+
+		current_goal_state = initial_state  # Will be updated
+
+		# Prepare observations
+		current_obs = {"visual": initial_frame, "proprio": initial_state}
 		goal_obs = {"visual": current_goal_frame, "proprio": current_goal_state, "mode": 'constant'}
 
-		# Run one MPC iteration; take 1 action; keep tail as warm start
-		taken_actions, memo_tail, new_frames, logs = world_model.perform_mpc_iter(
-			env=env,
-			current_obs=current_obs,
-			goal_obs=goal_obs,
-			objective_fn_latent=create_objective_fn(1.0, 2.0, mode="last"),
-			cem_config=cem_config,
-			n_taken_actions=1,
-			memo_actions=prev_memo,
-		)
+		# Plan and execute across MPC iterations
+		all_exec_frames = [initial_frame]  # accumulate executed frames
+		all_exec_actions = []              # accumulate executed actions
+		prev_memo = None                   # warm-start tail for next iteration
 
-		# Accumulate actions and frames
-		all_exec_actions.extend([a.detach().cpu().numpy() for a in taken_actions])
-		all_exec_frames.extend(list(new_frames))
+		max_steps = 1  # mpc iterations
+		cem_steps = 5
+		cem_config = {
+			"horizon": 1,  # plan horizon; execute 1 step each MPC
+			"samples": 20,
+			"topk": 10,
+			"cem_steps": cem_steps,
+			"var_scale": 1,
+		}
 
-		print(f"Taken action(s) this iter: {taken_actions.shape[0]}, total so far: {len(all_exec_actions)}")
+		for mpc_iter in range(max_steps):  # max mpc iterations
+			print(f"MPC step {mpc_iter+1}/{max_steps}, current goal idx: {current_goal_idx}/{len(all_frames)-1}")
 
-		# Update current observation for next iteration
-		current_obs = {"visual": new_frames[-1], "proprio": current_goal_state}
+			current_goal_frame = all_frames[current_goal_idx]
 
-		# Carry over CEM warm-start tail
-		prev_memo = memo_tail
+			# Update goal observation for model
+			goal_obs = {"visual": current_goal_frame, "proprio": current_goal_state, "mode": 'constant'}
 
-		# Optionally update the goal index periodically
-		if (mpc_iter + 1) % goal_update_steps == 0:
-			current_goal_idx = min(current_goal_idx + goal_jump, len(all_frames) - 1)
+			# Run one MPC iteration; take 1 action; keep tail as warm start
+			taken_actions, memo_tail, new_frames, logs = world_model.perform_mpc_iter(
+				env=env,
+				current_obs=current_obs,
+				goal_obs=goal_obs,
+				objective_fn_latent=create_objective_fn(1.0, 2.0, mode="last"),
+				cem_config=cem_config,
+				n_taken_actions=1,
+				memo_actions=prev_memo,
+			)
 
-		# Save one final side-by-side video for the whole executed trajectory
-		save_side_by_side_video(all_exec_frames, current_goal_frame, output_video, 10, "mp4v")
-		print(f"Saved side-by-side trajectory video to {output_video}")
+			# Accumulate actions and frames
+			all_exec_actions.extend([a.detach().cpu().numpy() for a in taken_actions])
+			all_exec_frames.extend(list(new_frames))
 
-		# Final evaluation: rollout executed actions in the env and print chamfer metrics
-		try:
-			exec_actions_np = np.stack(all_exec_actions, axis=0)
-			#print things going in
-			print("Executing actions in env for final evaluation:", exec_actions_np.shape, exec_actions_np)
-			_, e_states = env.rollout(1, initial_state, exec_actions_np)
+			print(f"Taken action(s) this iter: {taken_actions.shape[0]}, total so far: {len(all_exec_actions)}")
 
-			# Get the last executed state from the rollout: expected shape (N, 4)
-			last_state_np = e_states[-1]
-			if isinstance(last_state_np, torch.Tensor):
-				last_state_np = last_state_np.detach().cpu().numpy()
-			# If flattened, reshape to (N, 4)
-			if last_state_np.ndim == 1 and last_state_np.size % 4 == 0:
-				last_state_np = last_state_np.reshape(-1, 4)
-			elif last_state_np.ndim == 2 and last_state_np.shape[-1] != 4 and (last_state_np.size % 4 == 0):
-				last_state_np = last_state_np.reshape(-1, 4)
+			# Update current observation for next iteration
+			current_obs = {"visual": new_frames[-1], "proprio": current_goal_state}
 
-			# Derive goal state from dataset at the current goal index
-			# Dataset states are flattened (P*4); reshape to (P, 4)
-			goal_idx = int(min(current_goal_idx, states.shape[1] - 1))
-			goal_state_flat = states[0, goal_idx]
-			if isinstance(goal_state_flat, torch.Tensor):
-				goal_state_flat = goal_state_flat.detach().cpu().numpy()
-			goal_state_np = goal_state_flat.reshape(-1, 4)
+			# Carry over CEM warm-start tail
+			prev_memo = memo_tail
 
-			# Convert to torch tensors and batch: [1, N, D]
-			g = torch.as_tensor(goal_state_np, dtype=torch.float32)
-			c = torch.as_tensor(last_state_np, dtype=torch.float32)
-			if g.ndim == 2:
-				g = g.unsqueeze(0)
-			if c.ndim == 2:
-				c = c.unsqueeze(0)
+			# Optionally update the goal index periodically
+			if (mpc_iter + 1) % goal_update_steps == 0:
+				current_goal_idx = min(current_goal_idx + goal_jump, len(all_frames) - 1)
 
-			# Compute Chamfer distance (uses only first 3 dims internally)
-			cd = chamfer_distance(g, c)
-			print("Final states shape:", e_states.shape)
-			print("Goal state shape:", goal_state_np.shape, "Last state shape:", last_state_np.shape)
-			print("Chamfer distance (goal vs executed last state):", float(cd.item()))
+			# Save one final side-by-side video for the whole executed trajectory
+			save_side_by_side_video(all_exec_frames, current_goal_frame, output_video, 10, "mp4v")
+			print(f"Saved side-by-side trajectory video to {output_video}")
 
-			# Also use env.eval_state for consistency and to verify shapes
-			metrics = env.eval_state(goal_state_np, last_state_np)
-			print("Eval metrics:", metrics)
-		except Exception as ex:
-			print("Final evaluation failed:", ex)
+			# Final evaluation: rollout executed actions in the env and print chamfer metrics
+			try:
+				exec_actions_np = np.stack(all_exec_actions, axis=0)
+				#print things going in
+				print("Executing actions in env for final evaluation:", exec_actions_np.shape, exec_actions_np)
+				_, e_states = env.rollout(1, initial_state, exec_actions_np)
+
+				# Get the last executed state from the rollout: expected shape (N, 4)
+				last_state_np = e_states[-1]
+				if isinstance(last_state_np, torch.Tensor):
+					last_state_np = last_state_np.detach().cpu().numpy()
+				# If flattened, reshape to (N, 4)
+				if last_state_np.ndim == 1 and last_state_np.size % 4 == 0:
+					last_state_np = last_state_np.reshape(-1, 4)
+				elif last_state_np.ndim == 2 and last_state_np.shape[-1] != 4 and (last_state_np.size % 4 == 0):
+					last_state_np = last_state_np.reshape(-1, 4)
+
+				# Derive goal state from dataset at the current goal index
+				# Dataset states are flattened (P*4); reshape to (P, 4)
+				goal_state_flat = states[0][current_goal_idx]
+				if isinstance(goal_state_flat, torch.Tensor):
+					goal_state_flat = goal_state_flat.detach().cpu().numpy()
+				goal_state_np = goal_state_flat.reshape(-1, 4)
+
+				# Convert to torch tensors and batch: [1, N, D]
+				g = torch.as_tensor(goal_state_np, dtype=torch.float32)
+				c = torch.as_tensor(last_state_np, dtype=torch.float32)
+				if g.ndim == 2:
+					g = g.unsqueeze(0)
+				if c.ndim == 2:
+					c = c.unsqueeze(0)
+
+				# Compute Chamfer distance (uses only first 3 dims internally)
+				cd = chamfer_distance(g, c)
+
+
+				print("Final states shape:", e_states.shape)
+				print("Goal state shape:", goal_state_np.shape, "Last state shape:", last_state_np.shape)
+				print("Chamfer distance (goal vs executed last state):", float(cd.item()))
+
+				# Also use env.eval_state for consistency and to verify shapes
+				metrics = env.eval_state(goal_state_np, last_state_np)
+				print("Eval metrics:", metrics)
+			except Exception as ex:
+				print("Final evaluation failed:", ex)
 
 
 if __name__ == "__main__":
