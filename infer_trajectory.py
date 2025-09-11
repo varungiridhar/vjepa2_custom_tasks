@@ -685,7 +685,7 @@ def main():
 	all_exec_actions = []              # accumulate executed actions
 	prev_memo = None                   # warm-start tail for next iteration
 
-	max_steps = 10  # mpc iterations
+	max_steps = 5  # mpc iterations
 	cem_steps = 5
 	cem_config = {
 		"horizon": 1,  # plan horizon; execute 1 step each MPC
@@ -730,24 +730,58 @@ def main():
 		if (mpc_iter + 1) % goal_update_steps == 0:
 			current_goal_idx = min(current_goal_idx + goal_jump, len(all_frames) - 1)
 
-	# Save one final side-by-side video for the whole executed trajectory
-	save_side_by_side_video(all_exec_frames, current_goal_frame, output_video, 10, "mp4v")
-	print(f"Saved side-by-side trajectory video to {output_video}")
+		# Save one final side-by-side video for the whole executed trajectory
+		save_side_by_side_video(all_exec_frames, current_goal_frame, output_video, 10, "mp4v")
+		print(f"Saved side-by-side trajectory video to {output_video}")
 
-	# Final evaluation: rollout executed actions in the env and print chamfer metrics
-	# try:
-	# 	exec_actions_np = np.stack(all_exec_actions, axis=0)
-    #     #print things going in
-	# 	print("Executing actions in env for final evaluation:", exec_actions_np.shape, exec_actions_np)
-	# 	print("Initial state:", initial_state.shape, initial_state)
-	# 	# _, e_states = env.rollout(1, initial_state, exec_actions_np)
-	# 	# # Use dataset goal state corresponding to the current goal index
-	# 	# # goal_state_np = states[0, min(current_goal_idx, states.shape[1]-1)].cpu().numpy()
-	# 	# # metrics = env.eval_state(goal_state_np, e_states[-1])
-	# 	# print("rollout completed")
-	# 	# print("Final evaluation metrics:", e_states)
-	# except Exception as ex:
-	# 	print("Final evaluation failed:", ex)
+		# Final evaluation: rollout executed actions in the env and print chamfer metrics
+		try:
+			exec_actions_np = np.stack(all_exec_actions, axis=0)
+			#print things going in
+			print("Executing actions in env for final evaluation:", exec_actions_np.shape, exec_actions_np)
+			print("Initial state:", initial_state.shape, initial_state)
+			_, e_states = env.rollout(1, initial_state, exec_actions_np)
+
+			# Ensure we can import the Chamfer function from FlexEnvWrapper
+			from env.deformable_env.FlexEnvWrapper import chamfer_distance
+
+			# Get the last executed state from the rollout: expected shape (N, 4)
+			last_state_np = e_states[-1]
+			if isinstance(last_state_np, torch.Tensor):
+				last_state_np = last_state_np.detach().cpu().numpy()
+			# If flattened, reshape to (N, 4)
+			if last_state_np.ndim == 1 and last_state_np.size % 4 == 0:
+				last_state_np = last_state_np.reshape(-1, 4)
+			elif last_state_np.ndim == 2 and last_state_np.shape[-1] != 4 and (last_state_np.size % 4 == 0):
+				last_state_np = last_state_np.reshape(-1, 4)
+
+			# Derive goal state from dataset at the current goal index
+			# Dataset states are flattened (P*4); reshape to (P, 4)
+			goal_idx = int(min(current_goal_idx, states.shape[1] - 1))
+			goal_state_flat = states[0, goal_idx]
+			if isinstance(goal_state_flat, torch.Tensor):
+				goal_state_flat = goal_state_flat.detach().cpu().numpy()
+			goal_state_np = goal_state_flat.reshape(-1, 4)
+
+			# Convert to torch tensors and batch: [1, N, D]
+			g = torch.as_tensor(goal_state_np, dtype=torch.float32)
+			c = torch.as_tensor(last_state_np, dtype=torch.float32)
+			if g.ndim == 2:
+				g = g.unsqueeze(0)
+			if c.ndim == 2:
+				c = c.unsqueeze(0)
+
+			# Compute Chamfer distance (uses only first 3 dims internally)
+			cd = chamfer_distance(g, c)
+			print("Final states shape:", e_states.shape)
+			print("Goal state shape:", goal_state_np.shape, "Last state shape:", last_state_np.shape)
+			print("Chamfer distance (goal vs executed last state):", float(cd.item()))
+
+			# Also use env.eval_state for consistency and to verify shapes
+			metrics = env.eval_state(goal_state_np, last_state_np)
+			print("Eval metrics:", metrics)
+		except Exception as ex:
+			print("Final evaluation failed:", ex)
 
 
 if __name__ == "__main__":
